@@ -144,19 +144,25 @@ var $ov=document.getElementById("overlay"),$st=document.getElementById("status")
     $list=document.getElementById("channel-list"),$grid=document.getElementById("ch-grid"),
     $pc=document.getElementById("pc"),$v=document.getElementById("v"),$dbg=document.getElementById("dbg"),_t=null;
 
-function tier(){
-  var m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4,
-      mob=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent),
-      cx=navigator.connection||navigator.mozConnection||navigator.webkitConnection,
-      n=cx?(cx.effectiveType||"4g"):"4g";
-  if(!mob) return "high";
-  if(m<=1.5||c<=2||n==="slow-2g"||n==="2g") return "low";
-  if(m<=3||c<=4) return "mid";
-  return "high";
+/* ---- device / radio profile ---- */
+var NET=navigator.connection||navigator.mozConnection||navigator.webkitConnection||{};
+
+function abrCap(){
+  var mob=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  var dl=+NET.downlink||0, maxH=1080, maxBw=0;
+  if(mob){
+    var px=Math.max(screen.width,screen.height)*(devicePixelRatio||1);
+    maxH=Math.min(720,Math.round(px*0.75));
+    maxBw=Math.max(700000,Math.round(dl*0.55*1e6));
+    if(NET.saveData||NET.effectiveType==="slow-2g"||NET.effectiveType==="2g"||NET.effectiveType==="3g"){
+      maxH=480; maxBw=Math.min(maxBw,900000);
+    }
+  }
+  return {maxH:maxH,maxBw:maxBw};
 }
-var PROF={low:{buf:20,reBuf:4,behind:25,maxH:480,bwEst:700000},
-          mid:{buf:26,reBuf:5,behind:30,maxH:720,bwEst:1200000},
-          high:{buf:30,reBuf:5,behind:30,maxH:1080,bwEst:2000000}}[tier()];
+var CAP=abrCap();
+var PROF={buf:22,reBuf:4,behind:25,bwEst:Math.min(CAP.maxBw||2000000,900000)};
+
 var FITS=["contain","fill","cover"],LBL={contain:"Fit",fill:"Fill",cover:"Zoom"};
 
 function toast(msg,type,dur){
@@ -305,12 +311,11 @@ async function startPlayer(){
   var cookie="",raw="",url="",keys={};
   var attempts=0,gen=0,busy=false,started=false,lastCur=0,lastFail=0,
       stallTmr=null,prevDvr=false,lastErr="none";
-  var isMob=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   /* ---- config ---- */
   function cfg(){
-    var r={};
-    if(PROF.maxH<1080) r.maxHeight=PROF.maxH;
+    var r={maxHeight:CAP.maxH};
+    if(CAP.maxBw>0) r.maxBandwidth=CAP.maxBw;
     return {
       drm:{clearKeys:keys},
       manifest:{defaultPresentationDelay:12,ignoreTextStreamFailures:true,
@@ -321,6 +326,15 @@ async function startPlayer(){
         retryParameters:{maxAttempts:4,baseDelay:300,backoffFactor:2,fuzzFactor:.5,timeout:20000}},
       abr:{enabled:true,defaultBandwidthEstimate:PROF.bwEst,switchInterval:5,restrictions:r}
     };
+  }
+
+  /* re-adapt when the radio changes */
+  if(NET.addEventListener){
+    NET.addEventListener("change",function(){
+      CAP=abrCap();
+      PROF.bwEst=Math.min(CAP.maxBw||2000000,900000);
+      try{ player.configure(cfg()); }catch(_){}
+    });
   }
 
   /* ---- network ---- */
@@ -416,19 +430,4 @@ async function startPlayer(){
       try{ await $v.play(); }catch(_){}
     }catch(e){
       busy=false;
-      if(myGen!==gen) return;
-      fail(e,false);
-    }
-  }
-
-  function reloadLive(tag){
-    if(busy) return;
-    var at=remember();
-    if(at!==null) at=clampTo(at);
-    if(tag) lastErr=tag;
-    doLoad(at);
-  }
-
-  /* ---- events ---- */
-  function unmute(){$v.muted=false}
-  ["pointerdown","click","keydown"].forEa
+  
