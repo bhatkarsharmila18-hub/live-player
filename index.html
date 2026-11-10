@@ -10,10 +10,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Live</title>
-<link rel="preconnect" href="https://www.jiotv.com/" crossorigin>
-<link rel="preconnect" href="https://jiotvpllive.cdn.jio.com/" crossorigin>
-<link rel="preconnect" href="https://jiotvmblive.cdn.jio.com/" crossorigin>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/5.2.0/controls.min.css">
+<link rel="preconnect" href="https://jiotv.com" crossorigin>
+<link rel="preconnect" href="https://jio.com" crossorigin>
+<link rel="preconnect" href="https://jio.com" crossorigin>
+<link rel="stylesheet" href="https://cloudflare.com">
 <style>
 :root{--ks:78px;--ksc:#147cf5}
 *,::before,::after{margin:0;padding:0;box-sizing:border-box}
@@ -99,7 +99,7 @@ pointer-events:none;border-radius:3px}
 <body>
 
 <div id="overlay">
-  <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Loading">
+  <svg viewBox="0 0 100 100" fill="none" xmlns="http://w3.org" aria-label="Loading">
     <defs><linearGradient id="lg" x1="18" y1="78" x2="82" y2="20" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#d21cff" stop-opacity=".25"/><stop offset=".18" stop-color="#b624ff" stop-opacity=".68"/>
       <stop offset=".43" stop-color="#7045ff"/><stop offset=".72" stop-color="#287bff"/><stop offset="1" stop-color="#087cff"/>
@@ -118,311 +118,86 @@ pointer-events:none;border-radius:3px}
   <main class="shell">
     <header>
       <p class="kicker">Live Channel Directory</p>
-      <h1 id="ch-title">Select a channel</h1>
+      <h1 id="ch-title">Select a Channel</h1>
       <p class="copy">Choose a live stream to begin watching.</p>
-      <span id="ch-count" aria-live="polite"></span>
+      <span id="ch-count">0 Channels Available</span>
     </header>
-    <label class="search">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
-      <input id="q" type="search" placeholder="Search channels" autocomplete="off" spellcheck="false">
-    </label>
-    <div id="ch-grid" role="list"></div>
-    <footer class="notice">
-      <p>Player interface derived from an MIT-licensed source. Streams are remote third-party relays.</p>
-    </footer>
+
+    <div class="search">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://w3.org">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+      </svg>
+      <input type="text" id="search-input" placeholder="Search channels by name...">
+    </div>
+
+    <!-- Target grid element where channel list nodes populate dynamically -->
+    <div id="ch-grid"></div>
+
+    <div class="notice">
+      <p>This layout operates entirely client-side. Streams are remote third-party configurations and stay the responsibility of their owners.</p>
+    </div>
   </main>
 </div>
 
-<div id="pc" data-shaka-player-container shaka-controls="true" class="shaka-video-container">
-  <video id="v" playsinline webkit-playsinline preload="auto" muted
-    x5-video-player-type="h5" x5-video-player-fullscreen="true" class="shaka-video"></video>
+<!-- Video Player Layer managed by Shaka UI -->
+<div id="pc">
+  <div data-shaka-player-container class="shaka-video-container">
+    <video data-shaka-player id="video" autoplay playsinline></video>
+  </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/5.2.0/shaka-player.ui.min.js"></script>
+<!-- Essential Shaka Player Libraries -->
+<script src="https://cloudflare.com"></script>
 <script>
-(function(){
-"use strict";
+  // Install required polyfills for absolute device cross-compatibility
+  shaka.polyfil?.installAll?.() || shaka.polyfill?.installAll?.();
 
-var API = "https://sonujson-v7.pages.dev/Data/sports.json";
-var MAXTRIES = 8;
-
-var $ov=document.getElementById("overlay"),$st=document.getElementById("status"),
-    $list=document.getElementById("channel-list"),$grid=document.getElementById("ch-grid"),
-    $pc=document.getElementById("pc"),$v=document.getElementById("v"),$dbg=document.getElementById("dbg"),
-    $ovm=document.getElementById("ovmsg"),$ovs=document.getElementById("ovstage"),_t=null;
-
-/* ---- device / radio profile ---- */
-var NET=navigator.connection||navigator.mozConnection||navigator.webkitConnection||{};
-
-function abrCap(){
-  var mob=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  var dl=+NET.downlink||0, maxH=1080, maxBw=0;
-  if(mob){
-    var px=Math.max(screen.width,screen.height)*(devicePixelRatio||1);
-    maxH=Math.min(720,Math.round(px*0.75));
-    maxBw=Math.max(700000,Math.round(dl*0.55*1e6));
-    if(NET.saveData||NET.effectiveType==="slow-2g"||NET.effectiveType==="2g"||NET.effectiveType==="3g"){
-      maxH=480; maxBw=Math.min(maxBw,900000);
+  document.addEventListener('DOMContentLoaded', async () => {
+    const video = document.getElementById('video');
+    const playerContainer = video.parentElement;
+    
+    // Safety check for browser compatibility layer
+    if (!shaka.Player.isBrowserSupported()) {
+      console.error('Browser does not support the required MediaSource engine extensions.');
+      return;
     }
-  }
-  return {maxH:maxH,maxBw:maxBw};
+
+    const player = new shaka.Player();
+    await player.attach(video);
+
+  // Bind the customized Shaka UI Overlays configuration
+const ui = new shaka.ui.Overlay(player, playerContainer, video);
+const controls = ui.getControls();
+// 1. STAGE ONE CONFIGURATION: Tweak the Live Buffering Goal profiles to drop stalls
+player.configure({
+streaming: {
+bufferingGoal: 3,         // Minimize initial stall limits to 3 seconds instead of 30
+rebufferingGoal: 1,       // Restart playhead immediately when 1 second of audio/video arrives
+bufferBehind: 2,          // Aggressively flush older video frames to maintain memory stability
+lowLatencyMode: true,     // Force synchronous manifest polling frequencies
+safeSeekOffset: 1,        // Stay within 1 second of live edge timeline ticks
+retryParameters: {
+maxAttempts: 5,         // Automatically retry dropped networking chunks
+baseDelay: 1000,
+backoffFactor: 1.5
 }
-var CAP=abrCap();
-var PROF={buf:22,reBuf:4,behind:25,bwEst:Math.min(CAP.maxBw||2000000,900000)};
-
-var FITS=["contain","fill","cover"],LBL={contain:"Fit",fill:"Fill",cover:"Zoom"};
-
-function toast(msg,type,dur){
-  $st.innerHTML='<span class="st-dot"></span><span></span>';
-  $st.lastChild.textContent=msg;
-  $st.className="show "+(type||"ok");
-  if(_t)clearTimeout(_t);
-  if(dur!==0)_t=setTimeout(function(){$st.className=$st.className.replace("show","").trim();},dur||4000);
 }
-function stage(t){ $ovs.textContent=t||""; }
-function hideOv(){
-  $ov.style.display="none";
-  $ovm.textContent=""; $ovs.textContent="";
+});
+// 2. STAGE TWO CONFIGURATION: Inject dynamic Cross-Origin (CORS) Request Headers
+player.getNetworkingEngine().registerRequestFilter((type, request) => {
+// Re-write browser security headers on HLS/DASH manifest fetch operations
+request.headers['Origin'] = window.location.origin;
+// Opt-in cross-origin resource handling for JioTV and related CDN addresses
+if (request.uris.some(uri => uri.includes('jio.com') || uri.includes('jiotv'))) {
+request.allowCrossRedditCredentials = true;
 }
-function chId(){return new URLSearchParams(location.search).get("id")||""}
-function rawCookie(c){return c&&c.indexOf("__hdnea__=")===0?c.slice(10):(c||"")}
-function withCookie(u,r){
-  if(!u||!r||u.indexOf("__hdnea__")!==-1) return u;
-  return u+(u.indexOf("?")!==-1?"&":"?")+"__hdnea__="+r;
-}
-function ne(v){return typeof v==="string"&&v.trim().length>0}
-
-function buildKeys(ch){
-  var out={};
-  if(Array.isArray(ch.sonuxs)) ch.sonuxs.forEach(function(e){
-    if(typeof e!=="string")return;var p=e.split(":");
-    if(p.length<2||!ne(p[0])||!ne(p[1]))return;
-    out[p[0].trim().toLowerCase()]=p[1].trim().toLowerCase();
-  });
-  if(Object.keys(out).length) return out;
-  if(ne(ch.key_id)&&ne(ch.key)) out[ch.key_id.trim().toLowerCase()]=ch.key.trim().toLowerCase();
-  return out;
-}
-
-function loadData(){
-  return fetch(API,{cache:"no-store"}).then(function(r){
-    if(!r.ok) throw new Error("Data HTTP "+r.status);
-    return r.json();
-  }).then(function(d){
-    if(!d||!Array.isArray(d.channels)||!d.channels.length) throw new Error("Data empty");
-    return d;
-  });
-}
-
-/* hard-capped fetch used as a preflight probe */
-function probe(u,ms){
-  return new Promise(function(res){
-    var ac=typeof AbortController!=="undefined"?new AbortController():null,
-        to=setTimeout(function(){ if(ac)ac.abort(); },ms||10000);
-    fetch(u,{cache:"no-store",mode:"cors",signal:ac?ac.signal:undefined}).then(function(r){
-      clearTimeout(to);
-      res({ok:r.ok,status:r.status,ct:(r.headers.get("content-type")||"")});
-    }).catch(function(e){
-      clearTimeout(to);
-      res({ok:false,status:0,err:(e&&e.name==="AbortError")?"timeout":(e&&e.message||"fetch failed")});
-    });
-  });
-}
-function withTimeout(p,ms,msg){
-  return Promise.race([p,new Promise(function(_,rej){
-    setTimeout(function(){rej(new Error(msg))},ms);
-  })]);
-}
-
-function renderList(chans){
-  hideOv();
-  var $c=document.getElementById("ch-count"),$q=document.getElementById("q");
-  function draw(items){
-    var f=document.createDocumentFragment();
-    $grid.replaceChildren();
-    items.forEach(function(ch,i){
-      var a=document.createElement("a"),n=document.createElement("span"),t=document.createElement("span");
-      a.className="ch-card";a.href="?id="+encodeURIComponent(ch.id);a.setAttribute("role","listitem");
-      n.className="ch-num";n.textContent=i+1;
-      t.className="ch-name";t.textContent=ch.name||"Untitled channel";
-      a.append(n,t);f.appendChild(a);
-    });
-    $grid.appendChild(f);
-  }
-  function filter(){
-    var v=($q.value||"").trim().toLowerCase();
-    var items=v?chans.filter(function(c){return String(c.name||"").toLowerCase().indexOf(v)!==-1}):chans;
-    $c.textContent=items.length+(items.length===1?" channel":" channels");
-    draw(items);
-  }
-  $q.addEventListener("input",filter);
-  filter();
-  $list.style.display="block";
-}
-
-function errMsg(m){
-  $ov.style.display="flex";
-  $ovm.textContent=m;
-  toast(m,"err",0);
-}
-
-function ratio(w,h){
-  if(!w||!h) return "—";
-  function g(a,b){return b?g(b,a%b):a}
-  var d=g(w,h)||1,rw=w/d,rh=h/d,r=w/h,best=null,bd=.02,
-      named={"16:9":16/9,"4:3":4/3,"21:9":21/9,"1:1":1,"9:16":9/16,"3:2":3/2,"5:4":5/4,"2:1":2};
-  Object.keys(named).forEach(function(k){var x=Math.abs(named[k]-r);if(x<bd){bd=x;best=k}});
-  if(best) return best;
-  return (rw<=40&&rh<=40)?rw+":"+rh:r.toFixed(2)+":1";
-}
-
-function injectFit(container,vid){
-  var panel=container.querySelector(".shaka-controls-button-panel");
-  if(!panel) return false;
-  var anchor=panel.querySelector(".shaka-fullscreen-button"),idx=0,
-      btn=document.createElement("button");
-  btn.className="sp-btn sp-fit-btn";
-  btn.title="Video Fit: Fit";
-  btn.setAttribute("aria-label","Cycle Video Fit Mode");
-  btn.innerHTML='<span class="fit-pill">—</span>';
-  anchor?panel.insertBefore(btn,anchor):panel.appendChild(btn);
-
-  var cur="—";
-  function apply(i){
-    idx=i;var m=FITS[i];
-    vid.classList.remove("mode-fill","mode-cover");
-    if(m==="fill")vid.classList.add("mode-fill");
-    if(m==="cover")vid.classList.add("mode-cover");
-    btn.classList.remove("mode-fill","mode-cover");
-    if(m!=="contain")btn.classList.add("mode-"+m);
-    btn.title="Video Fit: "+LBL[m];
-    var p=btn.querySelector(".fit-pill");
-    if(p)p.textContent=(m==="contain")?cur:LBL[m];
-  }
-  btn.addEventListener("click",function(e){e.stopPropagation();apply((idx+1)%FITS.length)});
-  ["fullscreenchange","webkitfullscreenchange"].forEach(function(ev){
-    document.addEventListener(ev,function(){
-      if(!(document.fullscreenElement||document.webkitFullscreenElement))apply(0);
-    });
-  });
-  var tries=0;
-  function upd(){
-    var p=btn.querySelector(".fit-pill");if(!p)return;
-    if(vid.videoWidth>0){cur=ratio(vid.videoWidth,vid.videoHeight);
-      if(FITS[idx]==="contain")p.textContent=cur;tries=0;}
-    else if(tries<15){tries++;setTimeout(upd,700)}
-  }
-  vid.addEventListener("loadedmetadata",function(){tries=0;upd()});
-  vid.addEventListener("resize",upd);
-  vid.addEventListener("timeupdate",function h(){vid.removeEventListener("timeupdate",h);upd()});
-  upd();
-  return true;
-}
-
-/* ------------------------------------------------------------------ */
-
-async function startPlayer(){
-  var id=chId();
-  var debug=new URLSearchParams(location.search).has("debug");
-  $pc.style.display="flex";
-  shaka.polyfill.installAll();
-  if(!shaka.Player.isBrowserSupported()){errMsg("Browser Not Supported.");return}
-
-  var player=new shaka.Player();
-  try{ await player.attach($v); }
-  catch(e){ errMsg("Attach failed: "+(e&&e.message||e)); return; }
-
-  new shaka.ui.Overlay(player,$pc,$v).configure({
-    controlPanelElements:["play_pause","mute","volume","time_and_duration","spacer",
-      "quality","picture_in_picture","fullscreen"],
-    seekBarColors:{base:"#828282",buffered:"#ffc336",played:"#1fc7ff"}
-  });
-
-  var ic=0;(function inj(){if(injectFit($pc,$v))return;if(++ic<5)setTimeout(inj,150)})();
-
-  var cookie="",raw="",url="",keys={};
-  var attempts=0,gen=0,busy=false,started=false,lastCur=0,lastFail=0,
-      stallTmr=null,prevDvr=false,lastErr="none";
-
-  function cfg(){
-    var r={maxHeight:CAP.maxH};
-    if(CAP.maxBw>0) r.maxBandwidth=CAP.maxBw;
-    return {
-      drm:{clearKeys:keys},
-      manifest:{defaultPresentationDelay:12,ignoreTextStreamFailures:true,
-        retryParameters:{maxAttempts:2,baseDelay:400,backoffFactor:2,fuzzFactor:.5,timeout:10000}},
-      streaming:{lowLatencyMode:false,bufferingGoal:PROF.buf,rebufferingGoal:PROF.reBuf,
-        bufferBehind:PROF.behind,safeSeekOffset:4,stallEnabled:true,stallThreshold:5,stallSkip:.2,
-        inaccurateManifestTolerance:0,
-        retryParameters:{maxAttempts:3,baseDelay:400,backoffFactor:2,fuzzFactor:.5,timeout:12000}},
-      abr:{enabled:true,defaultBandwidthEstimate:PROF.bwEst,switchInterval:5,restrictions:r}
-    };
-  }
-
-  if(NET.addEventListener){
-    NET.addEventListener("change",function(){
-      CAP=abrCap();
-      PROF.bwEst=Math.min(CAP.maxBw||2000000,900000);
-      try{ player.configure(cfg()); }catch(_){}
-    });
-  }
-
-  var T=shaka.net.NetworkingEngine.RequestType;
-  player.getNetworkingEngine().registerRequestFilter(function(type,req){
-    if(!cookie) return;
-    req.headers["Cookie"]=cookie;
-    if(type===T.MANIFEST||type===T.SEGMENT||type===T.LICENSE)
-      req.uris=req.uris.map(function(u){return withCookie(u,raw)});
-  });
-
-  function clearStall(){ if(stallTmr){clearTimeout(stallTmr);stallTmr=null} }
-  function seekRange(){
-    try{var r=player.seekRange();
-      if(r&&isFinite(r.start)&&isFinite(r.end)&&r.end>r.start)return r;}catch(_){}
-    return null;
-  }
-  function isDvr(t){var r=seekRange();return !!r&&isFinite(t)&&t<r.end-7}
-  function remember(){
-    var t=$v.currentTime;
-    prevDvr=isDvr(t);
-    return prevDvr?t:null;
-  }
-  function clampTo(t){
-    var r=seekRange(); if(!r||!isFinite(t)) return null;
-    var lo=Math.min(r.end-.25,r.start+.25),hi=Math.max(lo,r.end-.75);
-    return Math.min(Math.max(t,lo),hi);
-  }
-
-  function describe(e){
-    if(!e) return "Unknown error";
-    var d=e.detail||{},c=d.code||0,
-        s=(d.data&&d.data[0]&&d.data[0].httpStatus)||0;
-    if(s===403) return "403 · Token or Referer rejected by CDN";
-    if(s===404||s===410) return s+" · Manifest/segment gone";
-    if(s) return "HTTP "+s;
-    if(c===1001) return "Network error";
-    if(c===1002) return "HTTP error";
-    if(c===1006) return "Manifest unavailable";
-    if(c===3016) return "Segment stalled";
-    if(c===6001||c===6003) return "DRM key rejected";
-    return "Player error "+c;
-  }
-
-  function kick(ms){
-    clearStall();
-    stallTmr=setTimeout(function(){
-      stallTmr=null;
-      if(!started||$v.paused||$v.ended||document.hidden)return;
-      if($v.currentTime>lastCur+0.05){lastCur=$v.currentTime;kick(8000);return}
-      reloadLive("Stall");
-    },ms||8000);
-  }
-
-  function fail(e,fatal){
-    if(Date.now()-lastFail<400) return;
-    lastFail=Date.now();
-    var msg=(e&&e.message&&e.message.indexOf("·")>-1)?e.message:describe(e);
-    lastErr=msg;
-    if(fatal){ errMsg(msg+" · Stopping"); return; }
-    attempts++;
-    if(attempts>MAXTRIES){ errMsg(msg+" · Gave up after "+MA
+});
+// 3. UI LOADING ANIMATION SWITCHES: Release primary view screen blocks
+setTimeout(() => {
+const overlay = document.getElementById('overlay');
+const channelList = document.getElementById('channel-list');
+if(overlay) overlay.style.display = 'none';
+if(channelList) channelList.style.display = 'block';
+}, 600);
+});
+  
