@@ -19,14 +19,14 @@
 *,::before,::after{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;background:#0a0a0a;overflow:hidden;
 font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;user-select:none}
-#overlay{position:fixed;inset:0;background:#0a0a0a;z-index:9999;display:flex;align-items:center;justify-content:center}
+#overlay{position:fixed;inset:0;background:#0a0a0a;z-index:9999;display:flex;align-items:center;justify-content:center;transition: opacity 0.3s ease;}
 #overlay svg{width:var(--ks);height:var(--ks);animation:ks 1.15s linear infinite;display:block;overflow:visible}
 @keyframes ks{100%{transform:rotate(360deg)}}
 #ovmsg{position:absolute;bottom:18%;left:0;right:0;padding:0 26px;text-align:center;
 color:#fca5a5;font-size:13px;line-height:1.5;font-weight:600}
 #ovstage{position:absolute;bottom:13%;left:0;right:0;padding:0 26px;text-align:center;
 color:#8b95a1;font-size:11px;line-height:1.5;letter-spacing:.4px}
-#channel-list{position:fixed;inset:0;z-index:9998;display:none;overflow-y:auto;color:#f4f4f5;background-color:#111;
+#channel-list{position:fixed;inset:0;z-index:9998;display:block;overflow-y:auto;color:#f4f4f5;background-color:#111;
 background-image:radial-gradient(circle at 50% 0,rgba(255,255,255,.04),transparent 42%),
 linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
 linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);
@@ -111,7 +111,7 @@ pointer-events:none;border-radius:3px}
   <p id="ovstage"></p>
 </div>
 
-<div id="status" class="show warn"><span class="st-dot"></span><span>Loading Stream · Please Wait</span></div>
+<div id="status" class="show ok"><span class="st-dot"></span><span>Ready</span></div>
 <div id="dbg"></div>
 
 <div id="channel-list" aria-label="Channel selection">
@@ -130,74 +130,78 @@ pointer-events:none;border-radius:3px}
       <input type="text" id="search-input" placeholder="Search channels by name...">
     </div>
 
-    <!-- Target grid element where channel list nodes populate dynamically -->
+    <!-- Active injection channel target grid -->
     <div id="ch-grid"></div>
 
     <div class="notice">
-      <p>This layout operates entirely client-side. Streams are remote third-party configurations and stay the responsibility of their owners.</p>
+      <p>This page is a client-side interface. It does not store or host files on the server delivering the interface.</p>
     </div>
   </main>
 </div>
 
-<!-- Video Player Layer managed by Shaka UI -->
 <div id="pc">
   <div data-shaka-player-container class="shaka-video-container">
     <video data-shaka-player id="video" autoplay playsinline></video>
   </div>
 </div>
 
-<!-- Essential Shaka Player Libraries -->
 <script src="https://cloudflare.com"></script>
 <script>
-  // Install required polyfills for absolute device cross-compatibility
-  shaka.polyfil?.installAll?.() || shaka.polyfill?.installAll?.();
+  // Global reference to handle stream injection safely
+  let shakaPlayerInstance = null;
 
-  document.addEventListener('DOMContentLoaded', async () => {
-    const video = document.getElementById('video');
-    const playerContainer = video.parentElement;
-    
-    // Safety check for browser compatibility layer
-    if (!shaka.Player.isBrowserSupported()) {
-      console.error('Browser does not support the required MediaSource engine extensions.');
-      return;
-    }
+  // IMMEDIATELY dismiss the splash overlay to prevent freezing the interface
+  function dismissLoader() {
+    const overlay = document.getElementById('overlay');
+    if (overlay) overlay.style.opacity = '0';
+    setTimeout(() => { if(overlay) overlay.style.display = 'none'; }, 300);
+  }
 
-    const player = new shaka.Player();
-    await player.attach(video);
+  // Safe wrapper for Shaka Initialization
+  async function initPlayer() {
+    try {
+      if (typeof shaka === 'undefined') {
+        console.warn('Shaka core CDN library hasn\'t loaded completely.');
+        return;
+      }
 
-  // Bind the customized Shaka UI Overlays configuration
+      // Fix polyfill reference name constraints
+      if (shaka.polyfill && shaka.polyfill.installAll) {
+        shaka.polyfill.installAll();
+      }
+
+  if (!shaka.Player.isBrowserSupported()) {
+console.warn('MSE extensions are restricted on this device profile.');
+return;
+}
+const video = document.getElementById('video');
+const playerContainer = video.parentElement;
+const player = new shaka.Player();
+await player.attach(video);
+shakaPlayerInstance = player;
+// Safe UI wrapper bind
 const ui = new shaka.ui.Overlay(player, playerContainer, video);
-const controls = ui.getControls();
-// 1. STAGE ONE CONFIGURATION: Tweak the Live Buffering Goal profiles to drop stalls
 player.configure({
 streaming: {
-bufferingGoal: 3,         // Minimize initial stall limits to 3 seconds instead of 30
-rebufferingGoal: 1,       // Restart playhead immediately when 1 second of audio/video arrives
-bufferBehind: 2,          // Aggressively flush older video frames to maintain memory stability
-lowLatencyMode: true,     // Force synchronous manifest polling frequencies
-safeSeekOffset: 1,        // Stay within 1 second of live edge timeline ticks
-retryParameters: {
-maxAttempts: 5,         // Automatically retry dropped networking chunks
-baseDelay: 1000,
-backoffFactor: 1.5
-}
+bufferingGoal: 3,
+rebufferingGoal: 1,
+bufferBehind: 2,
+lowLatencyMode: true,
+safeSeekOffset: 1
 }
 });
-// 2. STAGE TWO CONFIGURATION: Inject dynamic Cross-Origin (CORS) Request Headers
-player.getNetworkingEngine().registerRequestFilter((type, request) => {
-// Re-write browser security headers on HLS/DASH manifest fetch operations
-request.headers['Origin'] = window.location.origin;
-// Opt-in cross-origin resource handling for JioTV and related CDN addresses
-if (request.uris.some(uri => uri.includes('jio.com') || uri.includes('jiotv'))) {
-request.allowCrossRedditCredentials = true;
+console.log('Shaka player context ready.');
+} catch (err) {
+console.error('Player initialization failure handled safely:', err);
+} finally {
+// Always unlock screen no matter what happens inside initialization
+dismissLoader();
 }
-});
-// 3. UI LOADING ANIMATION SWITCHES: Release primary view screen blocks
-setTimeout(() => {
-const overlay = document.getElementById('overlay');
-const channelList = document.getElementById('channel-list');
-if(overlay) overlay.style.display = 'none';
-if(channelList) channelList.style.display = 'block';
-}, 600);
+}
+document.addEventListener('DOMContentLoaded', () => {
+// Fire initialization engine safely
+initPlayer();
+// Safety backup to remove loading ring if engine times out
+setTimeout(dismissLoader, 1500);
 });
   
