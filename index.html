@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="origin">
 <meta name="color-scheme" content="dark light">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -84,6 +84,10 @@ border:1.5px solid rgba(255,255,255,.28);color:rgba(255,255,255,.8);pointer-even
 .sp-fit-btn.mode-cover .fit-pill{border-color:#a78bfa;color:#a78bfa}
 .shaka-controls-container button{color:#fff!important}
 .shaka-video-container{background-color:#000!important}
+#dbg{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));right:8px;z-index:9996;display:none;
+max-width:300px;padding:8px 10px;background:rgba(0,0,0,.78);border:1px solid rgba(255,255,255,.16);
+color:#9fe8b8;font:10px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;
+pointer-events:none;border-radius:3px}
 @media(max-width:520px){.shell{padding-top:max(62px,env(safe-area-inset-top,0px));padding-left:24px;padding-right:24px}
 #ch-title{margin-top:38px}#ch-grid{grid-template-columns:1fr;gap:12px}}
 </style>
@@ -102,6 +106,7 @@ border:1.5px solid rgba(255,255,255,.28);color:rgba(255,255,255,.8);pointer-even
 </div>
 
 <div id="status" class="show warn"><span class="st-dot"></span><span>Loading Stream · Please Wait</span></div>
+<div id="dbg"></div>
 
 <div id="channel-list" aria-label="Channel selection">
   <main class="shell">
@@ -123,7 +128,7 @@ border:1.5px solid rgba(255,255,255,.28);color:rgba(255,255,255,.8);pointer-even
 </div>
 
 <div id="pc" data-shaka-player-container shaka-controls="true" class="shaka-video-container">
-  <video id="v" playsinline webkit-playsinline preload="none" muted
+  <video id="v" playsinline webkit-playsinline preload="auto" muted
     x5-video-player-type="h5" x5-video-player-fullscreen="true" class="shaka-video"></video>
 </div>
 
@@ -133,10 +138,11 @@ border:1.5px solid rgba(255,255,255,.28);color:rgba(255,255,255,.8);pointer-even
 "use strict";
 
 var API = "https://sonujson-v7.pages.dev/Data/sports.json";
+var MAXTRIES = 8;
 
 var $ov=document.getElementById("overlay"),$st=document.getElementById("status"),
     $list=document.getElementById("channel-list"),$grid=document.getElementById("ch-grid"),
-    $pc=document.getElementById("pc"),$v=document.getElementById("v"),_t=null;
+    $pc=document.getElementById("pc"),$v=document.getElementById("v"),$dbg=document.getElementById("dbg"),_t=null;
 
 function tier(){
   var m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4,
@@ -148,13 +154,14 @@ function tier(){
   if(m<=3||c<=4) return "mid";
   return "high";
 }
-var PROF={low:{buf:4,reBuf:1.5,behind:10,maxH:480,maxBw:1000000,bwEst:400000},
-          mid:{buf:7,reBuf:1.5,behind:20,maxH:720,maxBw:3000000,bwEst:1000000},
-          high:{buf:10,reBuf:1.5,behind:25,maxH:1080,maxBw:0,bwEst:2000000}}[tier()];
+var PROF={low:{buf:20,reBuf:4,behind:25,maxH:480,bwEst:700000},
+          mid:{buf:26,reBuf:5,behind:30,maxH:720,bwEst:1200000},
+          high:{buf:30,reBuf:5,behind:30,maxH:1080,bwEst:2000000}}[tier()];
 var FITS=["contain","fill","cover"],LBL={contain:"Fit",fill:"Fill",cover:"Zoom"};
 
 function toast(msg,type,dur){
-  $st.innerHTML='<span class="st-dot"></span><span>'+msg+'</span>';
+  $st.innerHTML='<span class="st-dot"></span><span></span>';
+  $st.lastChild.textContent=msg;
   $st.className="show "+(type||"ok");
   if(_t)clearTimeout(_t);
   if(dur!==0)_t=setTimeout(function(){$st.className=$st.className.replace("show","").trim();},dur||4000);
@@ -181,11 +188,11 @@ function buildKeys(ch){
 }
 
 function loadData(){
-  return fetch(API,{cache:"no-store",headers:{Accept:"application/json"}}).then(function(r){
-    if(!r.ok) throw new Error("HTTP "+r.status);
+  return fetch(API,{cache:"no-store"}).then(function(r){
+    if(!r.ok) throw new Error("Data HTTP "+r.status);
     return r.json();
   }).then(function(d){
-    if(!d||!Array.isArray(d.channels)||!d.channels.length) throw new Error("empty");
+    if(!d||!Array.isArray(d.channels)||!d.channels.length) throw new Error("Data empty");
     return d;
   });
 }
@@ -217,7 +224,8 @@ function renderList(chans){
 }
 
 function errMsg(m){
-  $ov.style.display="flex";toast(m,"err",0);
+  $ov.style.display="flex";
+  toast(m,"err",0);
 }
 
 function ratio(w,h){
@@ -273,13 +281,18 @@ function injectFit(container,vid){
   return true;
 }
 
-async function startPlayer(ch){
+/* ------------------------------------------------------------------ */
+
+async function startPlayer(){
+  var id=chId();
+  var debug=new URLSearchParams(location.search).has("debug");
   $pc.style.display="flex";
   shaka.polyfill.installAll();
   if(!shaka.Player.isBrowserSupported()){errMsg("Browser Not Supported.");return}
 
   var player=new shaka.Player();
-  await player.attach($v);
+  try{ await player.attach($v); }
+  catch(e){ errMsg("Attach failed: "+(e&&e.message||e)); return; }
 
   new shaka.ui.Overlay(player,$pc,$v).configure({
     controlPanelElements:["play_pause","mute","volume","time_and_duration","spacer",
@@ -289,59 +302,38 @@ async function startPlayer(ch){
 
   var ic=0;(function inj(){if(injectFit($pc,$v))return;if(++ic<5)setTimeout(inj,150)})();
 
-  var cookie=ch.cookie,raw=rawCookie(cookie),url=ch.stream_url,keys=buildKeys(ch);
-  var relaxed=false,thermal=false,start=Date.now();
+  var cookie="",raw="",url="",keys={};
+  var attempts=0,gen=0,busy=false,started=false,lastCur=0,lastFail=0,
+      stallTmr=null,prevDvr=false,lastErr="none";
   var isMob=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  if(!Object.keys(keys).length){toast("No DRM Keys · Stream Blocked","err",0);return}
-
-  var tt=setInterval(function(){
-    if(Date.now()-start<3600000)return;
-    clearInterval(tt);if(thermal)return;thermal=true;
-    try{player.configure("streaming.bufferBehind",8);
-      if(isMob)player.configure("abr.restrictions.maxHeight",Math.min(PROF.maxH,720));}catch(_){}
-  },60000);
-
+  /* ---- config ---- */
   function cfg(){
-    var h=(thermal&&isMob)?Math.min(PROF.maxH,720):PROF.maxH,r={};
-    if(!relaxed){if(h<1080)r.maxHeight=h;if(PROF.maxBw>0)r.maxBandwidth=PROF.maxBw}
+    var r={};
+    if(PROF.maxH<1080) r.maxHeight=PROF.maxH;
     return {
-      preferredAudioLanguage:"",
-      preferredAudioCodecs:["mp4a.40.2","mp4a.40.5","ac-3","ec-3","opus","flac"],
       drm:{clearKeys:keys},
-      manifest:{defaultPresentationDelay:4,ignoreTextStreamFailures:true,
-        retryParameters:{maxAttempts:5,baseDelay:500,backoffFactor:2,fuzzFactor:.5,timeout:30000}},
+      manifest:{defaultPresentationDelay:12,ignoreTextStreamFailures:true,
+        retryParameters:{maxAttempts:4,baseDelay:300,backoffFactor:2,fuzzFactor:.5,timeout:20000}},
       streaming:{lowLatencyMode:false,bufferingGoal:PROF.buf,rebufferingGoal:PROF.reBuf,
-        bufferBehind:PROF.behind,safeSeekOffset:4,stallEnabled:true,stallThreshold:1,stallSkip:.3,
+        bufferBehind:PROF.behind,safeSeekOffset:4,stallEnabled:true,stallThreshold:5,stallSkip:.2,
         inaccurateManifestTolerance:0,
-        retryParameters:{maxAttempts:5,baseDelay:500,backoffFactor:2,fuzzFactor:.5,timeout:30000}},
-      abr:{enabled:true,defaultBandwidthEstimate:PROF.bwEst,switchInterval:4,restrictions:r}
+        retryParameters:{maxAttempts:4,baseDelay:300,backoffFactor:2,fuzzFactor:.5,timeout:20000}},
+      abr:{enabled:true,defaultBandwidthEstimate:PROF.bwEst,switchInterval:5,restrictions:r}
     };
   }
-  player.configure(cfg());
 
-  var audioFixed=false;
-  player.addEventListener("trackschanged",function(){
-    if(audioFixed)return;
-    var l=player.getAudioLanguages();
-    if(!l||!l.length)return;
-    try{player.selectAudioLanguage(l[0]);audioFixed=true}catch(_){}
-  });
-
+  /* ---- network ---- */
   var T=shaka.net.NetworkingEngine.RequestType;
   player.getNetworkingEngine().registerRequestFilter(function(type,req){
-    req.headers["Referer"]="https://www.jiotv.com/";
-    req.headers["User-Agent"]="Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+    if(!cookie) return;
     req.headers["Cookie"]=cookie;
-    if(type===T.MANIFEST||type===T.SEGMENT)
+    if(type===T.MANIFEST||type===T.SEGMENT||type===T.LICENSE)
       req.uris=req.uris.map(function(u){return withCookie(u,raw)});
   });
 
-  var refreshing=false,retries=0,lastTry=0,started=false,stallTmr=null,bufState=false,lastCur=0;
-  var seek={active:false,wantsDvr:false,target:null,timer:null};
-
-  function clearStall(){if(stallTmr){clearTimeout(stallTmr);stallTmr=null}}
-  function clearBuf(){bufState=false;clearStall()}
+  /* ---- helpers ---- */
+  function clearStall(){ if(stallTmr){clearTimeout(stallTmr);stallTmr=null} }
   function seekRange(){
     try{var r=player.seekRange();
       if(r&&isFinite(r.start)&&isFinite(r.end)&&r.end>r.start)return r;}catch(_){}
@@ -350,64 +342,93 @@ async function startPlayer(ch){
   function isDvr(t){var r=seekRange();return !!r&&isFinite(t)&&t<r.end-7}
   function remember(){
     var t=$v.currentTime;
-    if(isDvr(t)){seek.wantsDvr=true;seek.target=t;return}
-    seek.wantsDvr=false;seek.target=null;
+    prevDvr=isDvr(t);
+    return prevDvr?t:null;
   }
-  function restore(t){
-    var r=seekRange();if(!r||!isFinite(t))return false;
-    var lo=Math.min(r.end-.25,r.start+.25),hi=Math.max(lo,r.end-.75),
-        tg=Math.min(Math.max(t,lo),hi);
-    try{$v.currentTime=tg;seek.wantsDvr=true;seek.target=tg;return Math.abs(tg-t)<1}catch(_){return false}
+  function clampTo(t){
+    var r=seekRange(); if(!r||!isFinite(t)) return null;
+    var lo=Math.min(r.end-.25,r.start+.25),hi=Math.max(lo,r.end-.75);
+    return Math.min(Math.max(t,lo),hi);
   }
-  function bufMsg(){return seek.wantsDvr||seek.active?"Loading Replay · Please Wait":"Buffering · Fetching Segments"}
-  function onResume(){
-    if(!bufState)return;
-    var w=seek.wantsDvr;clearBuf();
-    if(!refreshing)toast(w?"Replay · Playing Behind Live":"On Air · Stream Active",w?"ok":"live",2600);
+
+  function describe(e){
+    if(!e) return "Unknown error";
+    var d=e.detail||{},c=d.code||0,
+        s=(d.data&&d.data[0]&&d.data[0].httpStatus)||0;
+    if(s===403) return "403 · Token expired or geo-blocked";
+    if(s===404||s===410) return s+" · Manifest/segment gone";
+    if(s) return "HTTP "+s;
+    if(c===1001) return "Network error";
+    if(c===1002) return "HTTP error";
+    if(c===1006) return "Manifest unavailable";
+    if(c===3016) return "Segment stalled";
+    if(c===6001||c===6003) return "DRM key rejected";
+    return "Player error "+c;
   }
-  function schedule(ms){
+
+  /* ---- watchdog ---- */
+  function kick(ms){
     clearStall();
     stallTmr=setTimeout(function(){
       stallTmr=null;
-      if(!refreshing&&started&&!$v.paused&&!seek.active)reload();
-    },ms);
+      if(!started||$v.paused||$v.ended||document.hidden)return;
+      if($v.currentTime>lastCur+0.05){lastCur=$v.currentTime;kick(8000);return}
+      reloadLive("Stall");
+    },ms||8000);
   }
-  function unmute(){$v.muted=false}
-  ["pointerdown","click","keydown"].forEach(function(e){
-    $pc.addEventListener(e,unmute,{capture:true,once:true});
-  });
 
-  $v.addEventListener("seeking",function(){
-    seek.active=true;
-    if(seek.timer)clearTimeout(seek.timer);
-    remember();clearStall();
-    if(started&&!$v.paused){bufState=true;toast(bufMsg(),"warn",0)}
-  });
-  $v.addEventListener("seeked",function(){
-    remember();
-    if(seek.timer)clearTimeout(seek.timer);
-    seek.timer=setTimeout(function(){
-      seek.active=false;seek.timer=null;
-      if(bufState&&started&&!$v.paused)schedule(5000);
-    },7000);
-    if($v.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA&&!$v.paused)onResume();
-  });
-  $v.addEventListener("timeupdate",function(){
-    if($v.paused||$v.ended||!started||refreshing)return;
-    var t=$v.currentTime;
-    if(t>lastCur+.01){lastCur=t;onResume()}
-  });
+  /* ---- load ---- */
+  function fail(e,fatal){
+    if(Date.now()-lastFail<400) return;
+    lastFail=Date.now();
+    var msg=describe(e);
+    lastErr=msg;
+    if(fatal){ errMsg(msg+" · Stopping"); return; }
+    attempts++;
+    if(attempts>MAXTRIES){ errMsg(msg+" · Gave up after "+MAXTRIES+" attempts"); return; }
+    var wait=Math.min(15000,Math.round(900*Math.pow(1.8,attempts)));
+    errMsg(msg+" · Retry "+attempts+"/"+MAXTRIES+" in "+Math.round(wait/1000)+"s");
+    setTimeout(function(){ if(busy)return; doLoad(null); },wait);
+  }
 
-  async function reload(){
-    var now=Date.now();
-    if(refreshing||now-lastTry<1500)return;
-    if(retries>=5){toast("Stream Unavailable · Max Retries Reached","err",0);return}
-    remember();
-    var resumeAt=seek.wantsDvr?seek.target:null;
-    refreshing=true;lastTry=now;retries++;clearStall();
-    toast(resumeAt!==null?"Reconnecting Replay · Attempt "+retries+" Of 5":"Reconnecting · Attempt "+retries+" Of 5","warn",0);
+  async function doLoad(resumeAt){
+    if(busy) return;
+    busy=true;
+    var myGen=++gen;
+    clearStall();
+    toast(attempts?("Reconnecting · Attempt "+attempts+" Of "+MAXTRIES):"Loading Stream · Please Wait","warn",0);
     try{
-      var d=await loadData(),f=d.channels.find(function(c){return c.id===ch.id});
-      if(!f)throw new Error("missing");
-      var k=buildKeys(f);
-    
+      var d=await loadData();
+      if(myGen!==gen) return;
+      var f=d.channels.find(function(c){return c.id===id});
+      if(!f) throw new Error("Channel not in data");
+      cookie=f.cookie||""; raw=rawCookie(cookie); url=f.stream_url; keys=buildKeys(f);
+      if(!ne(url)) throw new Error("No stream URL");
+      if(!Object.keys(keys).length) throw new Error("No DRM keys in data");
+      if(f.name) document.title=f.name;
+      player.configure(cfg());
+      await player.load(withCookie(url,raw), resumeAt);
+      if(myGen!==gen) return;
+      busy=false;
+      started=true;
+      lastCur=$v.currentTime;
+      kick(9000);
+      try{ await $v.play(); }catch(_){}
+    }catch(e){
+      busy=false;
+      if(myGen!==gen) return;
+      fail(e,false);
+    }
+  }
+
+  function reloadLive(tag){
+    if(busy) return;
+    var at=remember();
+    if(at!==null) at=clampTo(at);
+    if(tag) lastErr=tag;
+    doLoad(at);
+  }
+
+  /* ---- events ---- */
+  function unmute(){$v.muted=false}
+  ["pointerdown","click","keydown"].forEa
